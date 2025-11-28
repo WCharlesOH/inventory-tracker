@@ -1,290 +1,98 @@
-from collections import defaultdict
-from pathlib import Path
-import sqlite3
-
 import streamlit as st
-import altair as alt
-import pandas as pd
+import oracledb
+import datetime
 
-
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title="Inventory tracker",
-    page_icon=":shopping_bags:",  # This is an emoji shortcode. Could be a URL too.
-)
-
-
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
-
-
-def connect_db():
-    """Connects to the sqlite database."""
-
-    DB_FILENAME = Path(__file__).parent / "inventory.db"
-    db_already_exists = DB_FILENAME.exists()
-
-    conn = sqlite3.connect(DB_FILENAME)
-    db_was_just_created = not db_already_exists
-
-    return conn, db_was_just_created
-
-
-def initialize_data(conn):
-    """Initializes the inventory table with some data."""
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS inventory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_name TEXT,
-            price REAL,
-            units_sold INTEGER,
-            units_left INTEGER,
-            cost_price REAL,
-            reorder_point INTEGER,
-            description TEXT
-        )
-        """
+# 1. CONEXIÓN A LA BASE DE DATOS
+# Si usas Oracle Cloud, necesitas la Wallet. Si es local, solo host/port.
+def get_connection():
+    return oracledb.connect(
+        user="ADMIN", # Tu usuario
+        password="TuPassword123", # Tu pass
+        dsn="db2022_high" # Tu DSN de la Wallet o "localhost/xepdb1"
     )
 
-    cursor.execute(
-        """
-        INSERT INTO inventory
-            (item_name, price, units_sold, units_left, cost_price, reorder_point, description)
-        VALUES
-            -- Beverages
-            ('Bottled Water (500ml)', 1.50, 115, 15, 0.80, 16, 'Hydrating bottled water'),
-            ('Soda (355ml)', 2.00, 93, 8, 1.20, 10, 'Carbonated soft drink'),
-            ('Energy Drink (250ml)', 2.50, 12, 18, 1.50, 8, 'High-caffeine energy drink'),
-            ('Coffee (hot, large)', 2.75, 11, 14, 1.80, 5, 'Freshly brewed hot coffee'),
-            ('Juice (200ml)', 2.25, 11, 9, 1.30, 5, 'Fruit juice blend'),
+st.title("🍔 Gestión Wily Burger")
 
-            -- Snacks
-            ('Potato Chips (small)', 2.00, 34, 16, 1.00, 10, 'Salted and crispy potato chips'),
-            ('Candy Bar', 1.50, 6, 19, 0.80, 15, 'Chocolate and candy bar'),
-            ('Granola Bar', 2.25, 3, 12, 1.30, 8, 'Healthy and nutritious granola bar'),
-            ('Cookies (pack of 6)', 2.50, 8, 8, 1.50, 5, 'Soft and chewy cookies'),
-            ('Fruit Snack Pack', 1.75, 5, 10, 1.00, 8, 'Assortment of dried fruits and nuts'),
+# 2. SECCIÓN DE CREAR PEDIDO
+st.header("Nuevo Pedido")
 
-            -- Personal Care
-            ('Toothpaste', 3.50, 1, 9, 2.00, 5, 'Minty toothpaste for oral hygiene'),
-            ('Hand Sanitizer (small)', 2.00, 2, 13, 1.20, 8, 'Small sanitizer bottle for on-the-go'),
-            ('Pain Relievers (pack)', 5.00, 1, 5, 3.00, 3, 'Over-the-counter pain relief medication'),
-            ('Bandages (box)', 3.00, 0, 10, 2.00, 5, 'Box of adhesive bandages for minor cuts'),
-            ('Sunscreen (small)', 5.50, 6, 5, 3.50, 3, 'Small bottle of sunscreen for sun protection'),
+# --- PASO A: Cabecera del Pedido ---
+col1, col2 = st.columns(2)
+with col1:
+    dni_cliente = st.text_input("DNI Cliente")
+with col2:
+    # Aquí deberías hacer una query para traer los empleados reales
+    id_cajero = st.selectbox("ID Cajero (Simulado)", [1, 2, 3]) 
+    metodo_pago = st.selectbox("Método Pago", ["Efectivo", "Tarjeta", "Yape"])
 
-            -- Household
-            ('Batteries (AA, pack of 4)', 4.00, 1, 5, 2.50, 3, 'Pack of 4 AA batteries'),
-            ('Light Bulbs (LED, 2-pack)', 6.00, 3, 3, 4.00, 2, 'Energy-efficient LED light bulbs'),
-            ('Trash Bags (small, 10-pack)', 3.00, 5, 10, 2.00, 5, 'Small trash bags for everyday use'),
-            ('Paper Towels (single roll)', 2.50, 3, 8, 1.50, 5, 'Single roll of paper towels'),
-            ('Multi-Surface Cleaner', 4.50, 2, 5, 3.00, 3, 'All-purpose cleaning spray'),
+# --- PASO B: Agregar Productos (El Detalle) ---
+st.subheader("Agregar Productos")
 
-            -- Others
-            ('Lottery Tickets', 2.00, 17, 20, 1.50, 10, 'Assorted lottery tickets'),
-            ('Newspaper', 1.50, 22, 20, 1.00, 5, 'Daily newspaper')
-        """
-    )
-    conn.commit()
+# Inicializar lista temporal en memoria (Session State)
+if 'carrito' not in st.session_state:
+    st.session_state.carrito = []
 
+# Formulario para agregar item al carrito
+with st.form("add_product_form"):
+    # Aquí podrías cargar productos desde la BD con una query
+    prod_id = st.number_input("ID Producto", min_value=1, step=1)
+    cantidad = st.number_input("Cantidad", min_value=1, step=1)
+    precio = st.number_input("Precio Unitario (S/.)", min_value=0.0)
+    
+    submitted = st.form_submit_button("Agregar al Pedido")
+    if submitted:
+        st.session_state.carrito.append({
+            "id_producto": prod_id,
+            "cantidad": cantidad,
+            "precio": precio,
+            "subtotal": cantidad * precio
+        })
+        st.success("Producto agregado")
 
-def load_data(conn):
-    """Loads the inventory data from the database."""
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute("SELECT * FROM inventory")
-        data = cursor.fetchall()
-    except:
-        return None
-
-    df = pd.DataFrame(
-        data,
-        columns=[
-            "id",
-            "item_name",
-            "price",
-            "units_sold",
-            "units_left",
-            "cost_price",
-            "reorder_point",
-            "description",
-        ],
-    )
-
-    return df
-
-
-def update_data(conn, df, changes):
-    """Updates the inventory data in the database."""
-    cursor = conn.cursor()
-
-    if changes["edited_rows"]:
-        deltas = st.session_state.inventory_table["edited_rows"]
-        rows = []
-
-        for i, delta in deltas.items():
-            row_dict = df.iloc[i].to_dict()
-            row_dict.update(delta)
-            rows.append(row_dict)
-
-        cursor.executemany(
+# Mostrar lo que llevamos en el pedido
+if st.session_state.carrito:
+    st.write("### Resumen del Pedido")
+    st.dataframe(st.session_state.carrito)
+    
+    # --- PASO C: Guardar Todo en Oracle ---
+    if st.button("CONFIRMAR Y GUARDAR PEDIDO"):
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            
+            # 1. Insertar Cabecera (PEDIDO)
+            # Nota: Necesitamos obtener el ID del cliente basado en el DNI primero
+            # Para simplificar, asumo que envías IDs directos o usas lógica extra.
+            
+            # Insertar Pedido y retornar el ID generado
+            out_id = cursor.var(int)
+            sql_pedido = """
+                INSERT INTO PEDIDO (ID_CLIENTE, ID_EMPLEADO_CAJERO, ID_METODO_PAGO, ESTADO)
+                VALUES ((SELECT ID_CLIENTE FROM CLIENTE WHERE NUMERO_DOCUMENTO = :dni), :cajero, 1, 'EN PROCESO')
+                RETURNING ID_PEDIDO INTO :id_ped
             """
-            UPDATE inventory
-            SET
-                item_name = :item_name,
-                price = :price,
-                units_sold = :units_sold,
-                units_left = :units_left,
-                cost_price = :cost_price,
-                reorder_point = :reorder_point,
-                description = :description
-            WHERE id = :id
-            """,
-            rows,
-        )
-
-    if changes["added_rows"]:
-        cursor.executemany(
+            cursor.execute(sql_pedido, dni=dni_cliente, cajero=id_cajero, id_ped=out_id)
+            new_pedido_id = out_id.getvalue()[0]
+            
+            # 2. Insertar Detalles (Loop en Python)
+            sql_detalle = """
+                INSERT INTO DETALLE_PEDIDO (ID_PEDIDO, ID_PRODUCTO, CANTIDAD, PRECIO_UNITARIO)
+                VALUES (:id_ped, :id_prod, :cant, :precio)
             """
-            INSERT INTO inventory
-                (id, item_name, price, units_sold, units_left, cost_price, reorder_point, description)
-            VALUES
-                (:id, :item_name, :price, :units_sold, :units_left, :cost_price, :reorder_point, :description)
-            """,
-            (defaultdict(lambda: None, row) for row in changes["added_rows"]),
-        )
-
-    if changes["deleted_rows"]:
-        cursor.executemany(
-            "DELETE FROM inventory WHERE id = :id",
-            ({"id": int(df.loc[i, "id"])} for i in changes["deleted_rows"]),
-        )
-
-    conn.commit()
-
-
-# -----------------------------------------------------------------------------
-# Draw the actual page, starting with the inventory table.
-
-# Set the title that appears at the top of the page.
-"""
-# :shopping_bags: Inventory tracker
-
-**Welcome to Charle's Corner Store's intentory tracker!**
-This page reads and writes directly from/to our inventory database.
-"""
-
-st.info(
-    """
-    Use the table below to add, remove, and edit items.
-    And don't forget to commit your changes when you're done.
-    """
-)
-
-# Connect to database and create table if needed
-conn, db_was_just_created = connect_db()
-
-# Initialize data.
-if db_was_just_created:
-    initialize_data(conn)
-    st.toast("Database initialized with some sample data.")
-
-# Load data from database
-df = load_data(conn)
-
-# Display data with editable table
-edited_df = st.data_editor(
-    df,
-    disabled=["id"],  # Don't allow editing the 'id' column.
-    num_rows="dynamic",  # Allow appending/deleting rows.
-    column_config={
-        # Show dollar sign before price columns.
-        "price": st.column_config.NumberColumn(format="$%.2f"),
-        "cost_price": st.column_config.NumberColumn(format="$%.2f"),
-    },
-    key="inventory_table",
-)
-
-has_uncommitted_changes = any(len(v) for v in st.session_state.inventory_table.values())
-
-st.button(
-    "Commit changes",
-    type="primary",
-    disabled=not has_uncommitted_changes,
-    # Update data in database
-    on_click=update_data,
-    args=(conn, df, st.session_state.inventory_table),
-)
-
-
-# -----------------------------------------------------------------------------
-# Now some cool charts
-
-# Add some space
-""
-""
-""
-
-st.subheader("Units left", divider="red")
-
-need_to_reorder = df[df["units_left"] < df["reorder_point"]].loc[:, "item_name"]
-
-if len(need_to_reorder) > 0:
-    items = "\n".join(f"* {name}" for name in need_to_reorder)
-
-    st.error(f"We're running dangerously low on the items below:\n {items}")
-
-""
-""
-
-st.altair_chart(
-    # Layer 1: Bar chart.
-    alt.Chart(df)
-    .mark_bar(
-        orient="horizontal",
-    )
-    .encode(
-        x="units_left",
-        y="item_name",
-    )
-    # Layer 2: Chart showing the reorder point.
-    + alt.Chart(df)
-    .mark_point(
-        shape="diamond",
-        filled=True,
-        size=50,
-        color="salmon",
-        opacity=1,
-    )
-    .encode(
-        x="reorder_point",
-        y="item_name",
-    ),
-    use_container_width=True,
-)
-
-st.caption("NOTE: The :diamonds: location shows the reorder point.")
-
-""
-""
-""
-
-# -----------------------------------------------------------------------------
-
-st.subheader("Best sellers", divider="orange")
-
-""
-""
-
-st.altair_chart(
-    alt.Chart(df)
-    .mark_bar(orient="horizontal")
-    .encode(
-        x="units_sold",
-        y=alt.Y("item_name").sort("-x"),
-    ),
-    use_container_width=True,
-)
+            
+            data_detalles = []
+            for item in st.session_state.carrito:
+                data_detalles.append((new_pedido_id, item['id_producto'], item['cantidad'], item['precio']))
+            
+            cursor.executemany(sql_detalle, data_detalles)
+            
+            conn.commit()
+            st.success(f"✅ Pedido #{new_pedido_id} creado exitosamente!")
+            
+            # Limpiar carrito
+            st.session_state.carrito = []
+            
+        except Exception as e:
+            st.error(f"Error en BD: {e}")
+        finally:
+            if conn: conn.close()
