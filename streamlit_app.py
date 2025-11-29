@@ -8,7 +8,7 @@ from pymongo.errors import PyMongoError
 
 st.set_page_config(page_title="Willy Burger", page_icon="🍔", layout="wide")
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://<usuario>:<password>@<cluster>/?retryWrites=true&w=majority")
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://20225041_db_user:OzIEZ7cBRp8ck7WJ@proyectobd.58lpncv.mongodb.net/?appName=ProyectoBD")
 NOMBRE_BD = "willy_burguer_bd"
 COL = {
     "productos": "Productos",
