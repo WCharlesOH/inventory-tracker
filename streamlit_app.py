@@ -16,7 +16,7 @@ st.set_page_config(
 # 2. CONEXIÓN A MONGODB
 # =============================================================================
 # IMPORTANTE: Reemplaza TU_URI con tu cadena real de Mongo Atlas o local
-MONGO_URI = "mongodb+srv://20225041_db_user:<2pWgC0A5tZJxlIdh>@proyectobd.58lpncv.mongodb.net/?appName=ProyectoBD"
+MONGO_URI = "mongodb+srv://20225041_db_user:<20225041_db_user>@proyectobd.58lpncv.mongodb.net/?appName=ProyectoBD"
 
 @st.cache_resource
 def init_connection():
