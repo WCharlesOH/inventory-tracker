@@ -1,247 +1,265 @@
-# app.py
-import os
-from datetime import datetime
 import streamlit as st
 import pandas as pd
-from pymongo import MongoClient, UpdateOne
-from pymongo.errors import PyMongoError
+from datetime import datetime
+from pymongo import MongoClient
 
-st.set_page_config(page_title="Willy Burger", page_icon="🍔", layout="wide")
+st.set_page_config(page_title="Wily Burger System", page_icon="🍔", layout="wide")
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://20225041_db_user:OzIEZ7cBRp8ck7WJ@proyectobd.58lpncv.mongodb.net/?appName=ProyectoBD")
-NOMBRE_BD = "willy_burguer_bd"
-COL = {
-    "productos": "Productos",
-    "insumos": "Insumos",
-    "recetas": "Recetas",
-    "pedidos": "Pedidos",
-    "metodos": "Metodos_pago",
-    "empleados": "Empleados",
-    "proveedores": "Proveedores",
-    "cajeros": "Cajeros",
-    "clientes": "Clientes",
-    "ordenes": "Ordenes",
-}
+MONGO_URI = "mongodb+srv://20225041_db_user:OzIEZ7cBRp8ck7WJ@proyectobd.58lpncv.mongodb.net/?appName=ProyectoBD"
 
 @st.cache_resource
-def obtener_db():
-    return MongoClient(MONGO_URI)[NOMBRE_BD]  # cachea conexión única para toda la app. :contentReference[oaicite:1]{index=1}
+def init_db():
+    cliente = MongoClient(MONGO_URI)
+    return cliente["wilyburger_db"]
 
-db = obtener_db()
-c_prod = db[COL["productos"]]
-c_ins = db[COL["insumos"]]
-c_rec = db[COL["recetas"]]
-c_ped = db[COL["pedidos"]]
-c_met = db[COL["metodos"]]
-c_emp = db[COL["empleados"]]
-c_prov = db[COL["proveedores"]]
-c_caj = db[COL["cajeros"]]
-c_cli = db[COL["clientes"]]
-c_ord = db[COL["ordenes"]]
+db = init_db()
 
-def listar_productos():   return list(c_prod.find({}, {"_id":0}).sort("idProducto", 1))
-def listar_insumos():     return list(c_ins.find({}, {"_id":0}).sort("idInsumo", 1))
-def receta_de(pid:int):   return c_rec.find_one({"idProducto": pid}, {"_id":0})
-def metodos_pago():       return [x["nombre"] for x in c_met.find({}, {"_id":0})] or ["Efectivo","Tarjeta","Yape/Plin"]
-def cajeros():            return [x["nombre"] for x in c_caj.find({}, {"_id":0})] or ["Cajero 1","Cajero 2"]
-def proveedores():        return [x["nombre"] for x in c_prov.find({}, {"_id":0})] or ["Makro"]
-def nuevo_id(colec, campo): 
-    doc = colec.find_one(sort=[(campo, -1)])
-    return (doc[campo] if doc else 0) + 1
+col_productos   = db["productos"]
+col_insumos     = db["insumos"]
+col_pedidos     = db["pedidos"]
+col_compras     = db["compras"]
+col_empleados   = db["empleados"]
+col_proveedores = db["proveedores"]
+col_clientes    = db["clientes"]
 
-if "carrito_ventas" not in st.session_state:   st.session_state.carrito_ventas = []
-if "carrito_compras" not in st.session_state:  st.session_state.carrito_compras = []
-if "dni_cliente" not in st.session_state:      st.session_state.dni_cliente = ""
-if "nombre_cliente" not in st.session_state:   st.session_state.nombre_cliente = ""
+def cargar_productos():
+    return list(col_productos.find({}, {"_id": 0}))
 
-def cargar_cliente_por_dni():
-    dni = st.session_state.dni_cliente.strip()
-    if not dni: 
+def cargar_insumos():
+    return list(col_insumos.find({}, {"_id": 0}))
+
+def cargar_empleados():
+    datos = list(col_empleados.find({}, {"_id": 0}))
+    if not datos:
+        return ["Juan Pérez (Cajero)", "María López (Admin)", "Carlos Ruiz (Cocinero)"]
+    return [e.get("nombre", "") for e in datos]
+
+def cargar_proveedores():
+    datos = list(col_proveedores.find({}, {"_id": 0}))
+    return [d.get("nombre","") for d in datos] if datos else ["Bimbo Perú","Makro","Coca Cola"]
+
+PRODUCTOS   = cargar_productos()
+INSUMOS     = cargar_insumos()
+EMPLEADOS   = cargar_empleados()
+PROVEEDORES = cargar_proveedores()
+
+if "carrito_ventas" not in st.session_state:
+    st.session_state.carrito_ventas = []
+if "carrito_compras" not in st.session_state:
+    st.session_state.carrito_compras = []
+if "nombre_cliente" not in st.session_state:
+    st.session_state.nombre_cliente = ""
+if "dni_cliente" not in st.session_state:
+    st.session_state.dni_cliente = ""
+
+def buscar_cliente_por_dni():
+    dni = st.session_state.get("dni_cliente","").strip()
+    if not dni:
         return
-    cli = c_cli.find_one({"idCliente": dni}, {"_id":0})
-    if cli:
-        st.session_state.nombre_cliente = cli.get("nombre","")
+    doc = col_clientes.find_one({"_id": dni})
+    st.session_state.nombre_cliente = doc.get("nombre","") if doc else st.session_state.get("nombre_cliente","")
 
-with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/3075/3075977.png", width=72)
-    rol_actual = st.selectbox("Rol actual", ["CAJERO","COCINERO","ADMIN"], index=0)
-    opcion = st.radio("Navegación", ["🍔 Ventas", "📦 Compras", "👨‍🍳 Cocina (Pedidos web)", "🧾 Historial"])
 
-# -------------------- VENTAS --------------------
-if opcion == "🍔 Ventas":
-    st.markdown("## Nueva venta")
-    prods = listar_productos()
-    nombres_prod = [p["nombre"] for p in prods]
-    metodos = metodos_pago()
-    cajero = st.selectbox("Cajero", cajeros())
+# Sidebar
+st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3075/3075977.png", width=88)
+st.sidebar.title("Menú Wily Burger")
 
-    c1, c2, c3 = st.columns(3)
+rol = st.sidebar.selectbox("Rol de sesión", ["Cajero", "Cocinero", "Administrador"])
+opciones = ["🍔 Nuevo Pedido (Ventas)", "👨‍🍳 Pedidos pendientes", "📊 Historial"]
+if rol == "Administrador":
+    opciones.insert(1, "📦 Orden de Compra (Insumos)")
+
+opcion = st.sidebar.radio("Ir a:", opciones)
+
+# Ventas
+
+if opcion == "🍔 Nuevo Pedido (Ventas)":
+    st.title("🍔 Registrar Nuevo Pedido")
+    st.markdown("---")
+
+    c1, c2, c3, c4 = st.columns([1.2, 1.8, 1.2, 1.2])
     with c1:
-        st.text_input("DNI/RUC", key="dni_cliente", on_change=cargar_cliente_por_dni)  # callback al presionar Enter. :contentReference[oaicite:2]{index=2}
+        st.text_input("DNI/RUC Cliente", key="dni_cliente", on_change=buscar_cliente_por_dni)
     with c2:
-        st.text_input("Nombre del cliente", key="nombre_cliente")
+        st.text_input("Nombre del Cliente", key="nombre_cliente")
     with c3:
-        metodo = st.selectbox("Método de pago", metodos)
+        cajero = st.selectbox("Cajero", EMPLEADOS)
+    with c4:
+        metodo_pago = st.selectbox("Método de Pago", ["Efectivo","Tarjeta","Yape/Plin"])
 
-    st.markdown("### Agregar productos")
-    f1, f2, f3 = st.columns([3,1,1])
-    with f1:
-        nombre_sel = st.selectbox("Producto", nombres_prod)
-        prod_sel = next((p for p in prods if p["nombre"] == nombre_sel), None)
-    with f2:
+    st.subheader("Agregar productos")
+    nombres_prod = [p["nombre"] for p in PRODUCTOS]
+    cA, cB, cC, cD = st.columns([3, 1, 1, 1])
+    with cA:
+        prod_sel = st.selectbox("Producto", nombres_prod)
+    precio_unit = next((p["precio"] for p in PRODUCTOS if p["nombre"] == prod_sel), 0.0)
+    with cB:
         cantidad = st.number_input("Cantidad", min_value=1, value=1)
-    with f3:
-        if prod_sel: st.metric("Precio", f"S/ {float(prod_sel['precio']):.2f}")
-    if st.button("➕ Agregar"):
-        st.session_state.carrito_ventas.append({
-            "idProducto": int(prod_sel["idProducto"]),
-            "nombre": prod_sel["nombre"],
-            "precio": float(prod_sel["precio"]),
-            "cantidad": int(cantidad),
-            "subtotal": round(float(prod_sel["precio"])*int(cantidad), 2)
-        })
-        st.toast("Producto agregado")
+    with cC:
+        st.info(f"S/ {precio_unit:.2f}")
+    with cD:
+        st.write(" ")
+        if st.button("➕ Agregar"):
+            st.session_state.carrito_ventas.append({
+                "producto": prod_sel,
+                "cantidad": int(cantidad),
+                "precio_unit": float(precio_unit),
+                "subtotal": float(cantidad) * float(precio_unit)
+            })
+            st.success("Producto agregado")
 
     if st.session_state.carrito_ventas:
         df = pd.DataFrame(st.session_state.carrito_ventas)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, use_container_width=True)
         total = float(df["subtotal"].sum())
-        cta1, cta2 = st.columns([3,1])
-        with cta2:
-            st.metric("Total", f"S/ {total:.2f}")
-        if st.button("✅ Finalizar venta", type="primary", use_container_width=True):
-            try:
-                necesidades = {}
-                for item in st.session_state.carrito_ventas:
-                    r = receta_de(item["idProducto"]) or {}
-                    for ins in r.get("insumos", []):
-                        req = float(item["cantidad"]) * float(ins["cantidadInsumo"])
-                        necesidades[ins["idInsumo"]] = necesidades.get(ins["idInsumo"], 0.0) + req
-                if necesidades:
-                    ids = list(necesidades.keys())
-                    stocks = {d["idInsumo"]: float(d["stock"]) for d in c_ins.find({"idInsumo":{"$in": ids}}, {"_id":0,"idInsumo":1,"stock":1})}
-                    faltantes = [i for i, req in necesidades.items() if stocks.get(i, 0.0) < req]
-                    if faltantes:
-                        st.error(f"Stock insuficiente en insumos: {faltantes}")
-                        st.stop()
-                    ops = [UpdateOne({"idInsumo": i}, {"$inc": {"stock": -necesidades[i]}}) for i in necesidades]
-                    c_ins.bulk_write(ops)  # lote eficiente. :contentReference[oaicite:3]{index=3}
+        st.metric("TOTAL", f"S/ {total:.2f}")
 
-                pedido = {
-                    "idPedido": nuevo_id(c_ped, "idPedido"),
-                    "fecha": datetime.utcnow(),
-                    "estado": "EN PROCESO",
-                    "canal": "LOCAL",
-                    "total": total,
-                    "cliente": {"idCliente": st.session_state.dni_cliente or None, "nombre": st.session_state.nombre_cliente or "Cliente"},
-                    "cajero": {"nombre": cajero},
-                    "metodo_pago": {"nombre": metodo},
-                    "detalle": st.session_state.carrito_ventas
-                }
-                c_ped.insert_one(pedido)
-                st.success(f"Venta #{pedido['idPedido']} registrada")
-                st.session_state.carrito_ventas = []
+        if st.button("✅ FINALIZAR PEDIDO", type="primary", use_container_width=True):
+            pedido = {
+                "fecha": datetime.now(),
+                "actualizado_en": datetime.now(),
+                "cliente": st.session_state.get("nombre_cliente") or "Cliente General",
+                "dni": st.session_state.get("dni_cliente",""),
+                "empleado": cajero,
+                "metodo_pago": metodo_pago,
+                "detalle": st.session_state.carrito_ventas,
+                "total": total,
+                "estado": "EN PROCESO"
+            }
+            col_pedidos.insert_one(pedido)
+            st.session_state.carrito_ventas = []
+            st.balloons()
+            st.success("Pedido creado y enviado a 👨‍🍳 Pedidos pendientes")
+            st.rerun()
+    else:
+        st.info("Carrito vacío.")
+
+
+# Compras
+
+elif opcion == "📦 Orden de Compra (Insumos)":
+    if rol != "Administrador":
+        st.warning("Solo el Administrador puede registrar compras.")
+    else:
+        st.title("📦 Orden de Compra")
+        c1, c2 = st.columns(2)
+        with c1:
+            proveedor = st.selectbox("Proveedor", PROVEEDORES)
+        with c2:
+            solicitante = st.selectbox("Solicitante", [e for e in EMPLEADOS if e] or ["Admin"])
+
+        st.subheader("Agregar insumo")
+        nombres_ins = [i["nombre"] for i in INSUMOS]
+        with st.form("form_compra"):
+            f1, f2, f3 = st.columns(3)
+            insumo_sel = f1.selectbox("Insumo", nombres_ins)
+            cant = f2.number_input("Cantidad", min_value=0.1, step=0.1)
+            costo = f3.number_input("Costo Unitario", min_value=0.1, step=0.1)
+            if st.form_submit_button("Agregar"):
+                st.session_state.carrito_compras.append({
+                    "insumo": insumo_sel,
+                    "cantidad": float(cant),
+                    "costo": float(costo),
+                    "subtotal": float(cant) * float(costo)
+                })
                 st.rerun()
-            except PyMongoError as e:
-                st.error(f"Error al registrar venta: {e}")
 
-# -------------------- COMPRAS (solo ADMIN) --------------------
-elif opcion == "📦 Compras":
-    if rol_actual != "ADMIN":
-        st.warning("Solo ADMIN puede registrar compras.")
-        st.stop()
-    st.markdown("## Nueva compra")
-    ins = listar_insumos()
-    nombres_ins = [i["nombre"] for i in ins]
-    proveedor = st.selectbox("Proveedor", proveedores())
-    solicitante = st.selectbox("Solicitante", [*cajeros(), "Admin"])
+        if st.session_state.carrito_compras:
+            dfc = pd.DataFrame(st.session_state.carrito_compras)
+            st.dataframe(dfc, use_container_width=True)
+            total_compra = float(dfc["subtotal"].sum())
+            st.metric("Total Compra", f"S/ {total_compra:.2f}")
 
-    g1, g2, g3 = st.columns([3,1,1])
-    with g1:
-        nombre_i = st.selectbox("Insumo", nombres_ins)
-        ins_sel = next(i for i in ins if i["nombre"] == nombre_i)
-    with g2:
-        cantidad = st.number_input("Cantidad", min_value=0.1, step=0.1, value=1.0)
-    with g3:
-        costo = st.number_input("Costo unitario (S/.)", min_value=0.1, step=0.1, value=1.0)
-    if st.button("➕ Añadir insumo"):
-        st.session_state.carrito_compras.append({
-            "idInsumo": int(ins_sel["idInsumo"]),
-            "nombre": ins_sel["nombre"],
-            "cantidadComprada": float(cantidad),
-            "costoUnitario": float(costo),
-            "subtotal": round(float(cantidad)*float(costo), 2)
-        })
-        st.toast("Insumo agregado")
-
-    if st.session_state.carrito_compras:
-        dfc = pd.DataFrame(st.session_state.carrito_compras)
-        st.dataframe(dfc, use_container_width=True, hide_index=True)
-        total_c = float(dfc["subtotal"].sum())
-        st.metric("Total compra", f"S/ {total_c:.2f}")
-        if st.button("📤 Registrar compra", type="primary", use_container_width=True):
-            try:
-                ops = [UpdateOne({"idInsumo": x["idInsumo"]}, {"$inc": {"stock": x["cantidadComprada"]}}) for x in st.session_state.carrito_compras]
-                c_ins.bulk_write(ops)  # aumenta stock. :contentReference[oaicite:4]{index=4}
-                orden = {
-                    "idOrden": nuevo_id(c_ord, "idOrden"),
-                    "fecha": datetime.utcnow(),
-                    "montoTotal": total_c,
-                    "proveedor": {"nombre": proveedor},
-                    "solicitante": {"nombre": solicitante},
-                    "detalle": st.session_state.carrito_compras
+            if st.button("📤 Guardar Compra", type="primary", use_container_width=True):
+                compra = {
+                    "fecha": datetime.now(),
+                    "proveedor": proveedor,
+                    "solicitante": solicitante,
+                    "detalle": st.session_state.carrito_compras,
+                    "total": total_compra
                 }
-                c_ord.insert_one(orden)
-                st.success(f"Compra #{orden['idOrden']} registrada")
+                col_compras.insert_one(compra)
+                st.success("Compra guardada")
                 st.session_state.carrito_compras = []
                 st.rerun()
-            except PyMongoError as e:
-                st.error(f"Error al registrar compra: {e}")
+        else:
+            st.info("Sin insumos en la orden.")
 
-# -------------------- COCINA (PEDIDOS WEB) --------------------
-elif opcion == "👨‍🍳 Cocina (Pedidos web)":
-    if rol_actual not in ("COCINERO","ADMIN"):
-        st.warning("Solo COCINERO o ADMIN puede gestionar pedidos web.")
-        st.stop()
-    st.markdown("## Pedidos web")
-    estados = ["EN PROCESO","PREPARANDO","LISTO","ENTREGADO"]
-    en_cocina = list(c_ped.find({"canal":"WEB", "estado":{"$ne":"ENTREGADO"}}, {"_id":0}).sort("fecha", 1))
-    if not en_cocina:
-        st.info("No hay pedidos web pendientes.")
+
+# Pedidos pendientes (Cocina)
+
+elif opcion == "👨‍🍳 Pedidos pendientes":
+    st.title("👨‍🍳 Pedidos pendientes")
+    filtro_estados = ["EN PROCESO", "PREPARANDO"]
+    pendientes = list(col_pedidos.find({"estado": {"$in": filtro_estados}}).sort("fecha", -1))
+
+    if not pendientes:
+        st.info("No hay pedidos pendientes.")
     else:
-        for ped in en_cocina:
-            with st.expander(f"Pedido #{ped['idPedido']} • {ped['estado']} • S/ {ped['total']:.2f}"):
-                st.write(f"Cliente: {ped.get('cliente',{}).get('nombre','-')}")
-                st.dataframe(pd.DataFrame(ped["detalle"]), use_container_width=True, hide_index=True)
-                nuevo_estado = st.selectbox("Actualizar estado", estados, index=estados.index(ped["estado"]) if ped["estado"] in estados else 0, key=f"est_{ped['idPedido']}")
-                if st.button("Guardar estado", key=f"btn_{ped['idPedido']}"):
-                    c_ped.update_one({"idPedido": ped["idPedido"]}, {"$set": {"estado": nuevo_estado}})
-                    st.success("Estado actualizado")
-                    st.rerun()
+        for ped in pendientes:
+            cab = f"#{str(ped.get('_id'))[-6:]} | {ped.get('cliente','')} | S/ {ped.get('total',0):.2f} | {ped.get('estado')}"
+            with st.expander(cab, expanded=False):
+                d1, d2 = st.columns([2,1])
+                with d1:
+                    df_det = pd.DataFrame(ped.get("detalle", []))
+                    if not df_det.empty:
+                        st.dataframe(df_det, use_container_width=True, hide_index=True)
+                with d2:
+                    st.write(f"Fecha: {ped.get('fecha'):%Y-%m-%d %H:%M}")
+                    st.write(f"Método: {ped.get('metodo_pago','')}")
+                    st.write(f"Cajero: {ped.get('empleado','')}")
+                    st.write("")
 
-# -------------------- HISTORIAL (ventas y compras) --------------------
-elif opcion == "🧾 Historial":
-    st.markdown("## Historial")
-    tab1, tab2 = st.tabs(["Pedidos", "Compras"])
-    with tab1:
-        ult = list(c_ped.find({}, {"_id":0}).sort("fecha", -1).limit(100))
-        if not ult: st.info("Sin pedidos registrados.")
-        for ped in ult:
-            with st.expander(f"#{ped['idPedido']} • {ped.get('canal','LOCAL')} • {ped['estado']} • S/ {ped['total']:.2f}"):
-                c1, c2, c3 = st.columns(3)
-                c1.write(f"Cliente: {ped.get('cliente',{}).get('nombre','-')}")
-                c2.write(f"Pago: {ped.get('metodo_pago',{}).get('nombre','-')}")
-                c3.write(f"Fecha: {ped['fecha']}")
-                st.dataframe(pd.DataFrame(ped["detalle"]), use_container_width=True, hide_index=True)
-    with tab2:
-        ultc = list(c_ord.find({}, {"_id":0}).sort("fecha", -1).limit(100))
-        if not ultc: st.info("Sin compras registradas.")
-        for od in ultc:
-            with st.expander(f"#{od['idOrden']} • S/ {od['montoTotal']:.2f}"):
-                c1, c2 = st.columns(2)
-                c1.write(f"Proveedor: {od.get('proveedor',{}).get('nombre','-')}")
-                c2.write(f"Fecha: {od['fecha']}")
-                st.dataframe(pd.DataFrame(od["detalle"]), use_container_width=True, hide_index=True)
+                    if ped.get("estado") == "EN PROCESO":
+                        if st.button("🔪 Marcar PREPARANDO", key=f"prep_{ped['_id']}"):
+                            col_pedidos.update_one({"_id": ped["_id"]}, {"$set": {"estado":"PREPARANDO","actualizado_en": datetime.now()}})
+                            st.success("Pedido actualizado a PREPARANDO")
+                            st.rerun()
+
+                    if st.button("✅ Marcar ENTREGADO", key=f"ok_{ped['_id']}"):
+                        col_pedidos.update_one({"_id": ped["_id"]}, {"$set": {"estado":"ENTREGADO","actualizado_en": datetime.now()}})
+                        st.success("Pedido actualizado a ENTREGADO")
+                        st.rerun()
+
+
+# Historial
+
+elif opcion == "📊 Historial":
+    st.title("📊 Historial")
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.subheader("Pedidos recientes")
+        pedidos = list(col_pedidos.find({}).sort("fecha", -1).limit(30))
+        if pedidos:
+            dfp = pd.DataFrame([
+                {
+                    "id": str(p.get("_id")),
+                    "fecha": p.get("fecha"),
+                    "cliente": p.get("cliente"),
+                    "total": p.get("total"),
+                    "estado": p.get("estado")
+                } for p in pedidos
+            ])
+            st.dataframe(dfp, use_container_width=True, hide_index=True)
+        else:
+            st.info("Sin pedidos registrados.")
+
+    with c2:
+        st.subheader("Compras recientes")
+        compras = list(col_compras.find({}).sort("fecha", -1).limit(30))
+        if compras:
+            dfc = pd.DataFrame([
+                {
+                    "id": str(c.get("_id")),
+                    "fecha": c.get("fecha"),
+                    "proveedor": c.get("proveedor"),
+                    "total": c.get("total")
+                } for c in compras
+            ])
+            st.dataframe(dfc, use_container_width=True, hide_index=True)
+        else:
+            st.info("Sin compras registradas.")
 
 st.markdown("---")
-st.caption("Willy Burger • Streamlit + PyMongo • 2025")
+st.caption("Sistema Wily Burger | Desarrollado por Equipo 8 - Proyecto BD 2025")
