@@ -308,4 +308,4 @@ elif opcion == "🧾 Historial":
                     st.dataframe(detc, use_container_width=True, hide_index=True)
 
 st.markdown("---")
-st.caption("Willy Burger • Elaborado por Grupo 5 • Proyecto de Base de Datos 2025")
+st.caption("Willy Burger • Elaborado por Grupo 8 • Proyecto de Base de Datos 2025")
