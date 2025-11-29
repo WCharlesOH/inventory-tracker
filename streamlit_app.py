@@ -15,6 +15,10 @@ def obtener_db():
     return MongoClient(MONGO_URI)[NOMBRE_BD]
 
 db = obtener_db()
+
+
+# Colecciones
+
 col_productos   = db["productos"]
 col_insumos     = db["insumos"]
 col_recetas     = db["recetas"]
@@ -26,6 +30,9 @@ col_clientes    = db["clientes"]
 col_cajeros     = db["cajeros"]
 col_metodos     = db["metodos_pago"]
 col_ordenes     = db["ordenes"]
+
+
+# Utilidades
 
 def listar_productos():
     return list(col_productos.find({}, {"_id": 0}).sort("idProducto", 1))
@@ -82,6 +89,9 @@ def es_celular_valido(tel: str):
         return True
     return t.isdigit() and len(t) == 9 and t.startswith("9")
 
+
+# Estado
+
 if "carrito_ventas" not in st.session_state:   st.session_state.carrito_ventas = []
 if "carrito_compras" not in st.session_state:  st.session_state.carrito_compras = []
 if "dni_cliente" not in st.session_state:      st.session_state.dni_cliente = ""
@@ -102,6 +112,9 @@ def on_dni_enter():
         st.session_state.nombre_cliente = st.session_state.nombre_cliente or ""
         st.session_state.telefono_cliente = st.session_state.telefono_cliente or ""
 
+
+# Sidebar / Navegación
+
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3075/3075977.png", width=80)
     rol_actual = st.selectbox("Rol actual", ["Cajero", "Cocinero", "Administrador"], index=0)
@@ -110,12 +123,19 @@ with st.sidebar:
         paginas.insert(1, "📦 Compras")
     pagina = st.radio("Navegación", paginas, index=0)
 
+
 # Ventas
 
 if pagina == "🍔 Ventas":
     st.markdown("## Nueva venta")
+
     productos = listar_productos()
-    nombres_prod = [p["nombre"] for p in productos]
+    mapa_prod = {p["nombre"]: p for p in productos}
+    opciones_prod = list(mapa_prod.keys())
+    if not opciones_prod:
+        st.info("No hay productos disponibles.")
+        st.stop()
+
     metodos = listar_metodos()
     cajeros = listar_cajeros()
 
@@ -145,23 +165,22 @@ if pagina == "🍔 Ventas":
     st.markdown("### Agregar productos")
     f1, f2, f3 = st.columns([3,1,1])
     with f1:
-        nombre_sel = st.selectbox("Producto", nombres_prod)
-        prod_sel = next((p for p in productos if p["nombre"] == nombre_sel), None)
+        nombre_sel = st.selectbox("Producto", opciones_prod, index=0)
+        prod_sel = mapa_prod[nombre_sel]
     with f2:
         cantidad = st.number_input("Cantidad", min_value=1, value=1)
     with f3:
-        st.info(f"S/ {float(prod_sel['precio']):.2f}" if prod_sel else "S/ 0.00")
+        st.info(f"S/ {float(prod_sel['precio']):.2f}")
 
     if st.button("➕ Agregar"):
-        if prod_sel:
-            st.session_state.carrito_ventas.append({
-                "idProducto": int(prod_sel["idProducto"]),
-                "nombre": prod_sel["nombre"],
-                "precio": float(prod_sel["precio"]),
-                "cantidad": int(cantidad),
-                "subtotal": round(float(prod_sel["precio"]) * int(cantidad), 2)
-            })
-            st.toast("Producto agregado")
+        st.session_state.carrito_ventas.append({
+            "idProducto": int(prod_sel["idProducto"]),
+            "nombre": prod_sel["nombre"],
+            "precio": float(prod_sel["precio"]),
+            "cantidad": int(cantidad),
+            "subtotal": round(float(prod_sel["precio"]) * int(cantidad), 2)
+        })
+        st.toast("Producto agregado")
 
     if st.session_state.carrito_ventas:
         df = pd.DataFrame(st.session_state.carrito_ventas)
@@ -217,7 +236,7 @@ if pagina == "🍔 Ventas":
         st.info("Carrito vacío.")
 
 
-# Compras (solo Administrador)
+# Compras
 
 elif pagina == "📦 Compras":
     if rol_actual != "Administrador":
@@ -225,15 +244,21 @@ elif pagina == "📦 Compras":
         st.stop()
 
     st.markdown("## Nueva compra")
+
     insumos = listar_insumos()
-    nombres_ins = [i["nombre"] for i in insumos]
+    mapa_ins = {i["nombre"]: i for i in insumos}
+    opciones_ins = list(mapa_ins.keys())
+    if not opciones_ins:
+        st.info("No hay insumos disponibles.")
+        st.stop()
+
     proveedor = st.selectbox("Proveedor", listar_proveedores())
     solicitante = st.selectbox("Solicitante", listar_empleados())
 
     g1, g2, g3 = st.columns([3,1,1])
     with g1:
-        nombre_i = st.selectbox("Insumo", nombres_ins)
-        ins_sel = next(i for i in insumos if i["nombre"] == nombre_i)
+        nombre_i = st.selectbox("Insumo", opciones_ins, index=0)
+        ins_sel = mapa_ins[nombre_i]
     with g2:
         cantidad = st.number_input("Cantidad", min_value=0.1, step=0.1, value=1.0)
     with g3:
@@ -278,7 +303,7 @@ elif pagina == "📦 Compras":
         st.info("Sin insumos en la orden.")
 
 
-# COCINA
+# Pedidos pendientes
 
 elif pagina == "👨‍🍳 Pedidos pendientes":
     st.markdown("## Pedidos pendientes")
@@ -350,5 +375,6 @@ elif pagina == "🧾 Historial":
                     if not det.empty:
                         st.dataframe(det, use_container_width=True, hide_index=True)
 
+
 st.markdown("---")
-st.caption("Sistema Wily Burger | Streamlit + MongoDB")
+st.caption("Sistema Wily Burger | Desarrollado por Grupo 5 - Curso de Bases de Datos 2025")
